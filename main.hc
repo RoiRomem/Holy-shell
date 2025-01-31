@@ -1,147 +1,141 @@
-extern "c" I32 getchar(); // External getchar declaration
-extern "c" I32 strcmp(U8 *__s1, U8 *__s2);
-extern "c" I64 strlen(U8 *s);
+// External declarations (use correct HolyC types)
+extern "c" I32 getchar(); 
+public _extern _STRCMP I64 StrCmp(U8 *s1, U8 *s2);
 extern "c" U8 *strtok(U8 *__str, U8 *__sep);
+public _extern _STRCPY U0 StrCpy(U8 *dst, U8 *src);
+public _extern _STRLEN_FAST U64 StrLen(U8 *buf);
 
+// Constants
 #define INITIAL_SIZE 100
 #define INITIAL_TOKEN_SIZE 10
-#define DELIMITERS " \t\r\n"   // Token separators
+#define DELIMITERS " \t\r\n"
+#define NUM_OF_CMDS 2
 
-// Function to read input into a dynamically allocated buffer
-U0 gets(U8 **source) {
+// Command class
+class Command {
+    U8 *cmd;
+    U0 (*commandFunction)(U8 **args); // Function pointer now expects args as an argument
+};
+
+U0 commandRunnner(U8 **args, U0 (*proc)(U8 **args)) {
+    proc(args);
+}
+
+// Global variables
+I64 argsLength = 0;
+U8 **args; // Global args
+Command *commandList;
+
+// Command functions
+U0 ExitCmd(U8 **args) {
+    "bye bye\n";
+    Exit;
+}
+
+U0 EchoCmd(U8 **args) {
+    for (I64 i = 0; i < argsLength-1; i++) {
+        "%s ", args[i];
+    }
+    "\n";
+}
+
+// Initialize commands
+Command *SetCommands() {
+    Command *cmds = MAlloc(sizeof(Command) * NUM_OF_CMDS);
+
+    cmds[0].cmd = "exit";  
+    cmds[0].commandFunction = &ExitCmd;  // Use address-of operator for function pointer
+    
+    cmds[1].cmd = "echo";
+    cmds[1].commandFunction = &EchoCmd;  // Use address-of operator for function pointer
+
+    return cmds;
+}
+
+// Dynamic input reader
+U0 Gets(U8 **source) {
     I32 size = INITIAL_SIZE;
     U8 *buffer = MAlloc(size);
-    if (!buffer) {
-        "Failed to allocate memory\n";
-        *source = NULL;
-        return;
-    }
+    I32 i = 0, ch;
 
-    I32 i = 0;
     while (1) {
-        I32 ch = getchar();
+        ch = getchar();
         if (ch == -1 || ch == '\n') {
             buffer[i] = 0;
             break;
         }
         buffer[i++] = ch;
-
-        if (i >= size - 1) {
+        if (i >= size-1) {
             size *= 2;
-            U8 *new_buffer = ReAlloc(buffer, size);
-            if (!new_buffer) {
-                "Failed to reallocate memory\n";
-                Free(buffer);
-                *source = NULL;
-                return;
-            }
-            buffer = new_buffer;
+            U8 *new_buffer = MAlloc(size); // Allocate new buffer
+            StrCpy(new_buffer, buffer);    // Copy old data to new buffer
+            Free(buffer);                  // Free old buffer
+            buffer = new_buffer;           // Point to new buffer
         }
     }
-
     *source = buffer;
 }
 
-// Tokenizer function to split input into tokens
-U8 **tokenizer(U8 *input) {
-    I64 capacity = INITIAL_TOKEN_SIZE;
-    U8 **tokens = MAlloc(capacity * sizeof(U8 *));
-    if (!tokens) {
-        "Memory allocation error\n";
-        return NULL;
-    }
-
+// Tokenizer
+U8 **Tokenizer(U8 *input) {
+    I64 token_capacity = INITIAL_TOKEN_SIZE; // Use a variable for dynamic resizing
+    U8 **tokens = MAlloc(token_capacity * sizeof(U8*));
     U8 *token = strtok(input, DELIMITERS);
     I64 count = 0;
 
     while (token) {
-        // Allocate and copy token manually (Holy C compatible)
-        U8 *token_copy = MAlloc(strlen(token) + 1);
-        if (!token_copy) {
-            "Token copy failed\n";
-            Free(tokens);
-            return NULL;
-        }
-        StrCpy(token_copy, token);
-
-        // Resize token array if needed
-        if (count >= capacity - 1) {
-            capacity *= 2;
-            U8 **new_tokens = ReAlloc(tokens, capacity * sizeof(U8 *));
-            if (!new_tokens) {
-                "Token resize failed\n";
-                Free(tokens);
-                return NULL;
+        tokens[count] = MAlloc(StrLen(token)+1);
+        StrCpy(tokens[count], token);
+        count++;
+        if (count >= token_capacity-1) {
+            token_capacity *= 2; // Double the capacity
+            U8 **new_tokens = MAlloc(token_capacity * sizeof(U8*)); // Allocate new tokens array
+            for (I64 j = 0; j < count; j++) {
+                new_tokens[j] = tokens[j]; // Copy old tokens to new array
             }
-            tokens = new_tokens;
+            Free(tokens);                  // Free old tokens array
+            tokens = new_tokens;           // Point to new tokens array
         }
-
-        tokens[count++] = token_copy;
         token = strtok(NULL, DELIMITERS);
     }
-
-    tokens[count] = NULL; // NULL-terminate
+    tokens[count] = NULL;
     return tokens;
 }
 
-// Function to free tokens
-U0 free_tokens(U8 **tokens) {
-    if (!tokens) return;
-    for (I64 i = 0; tokens[i]; i++) {
-        Free(tokens[i]); // Holy C's Free
-    }
-    Free(tokens);
-}
+// Main shell
+U0 Shell() {
+    commandList = SetCommands();
+    U8 *input;
 
-
-U0 tokenHandling(U8 **tokens) {
-    U8 *cmd = tokens[0];
-    I64 argsLength = MAlloc(sizeof(I64));
-    //count the length of the array:
-    for(I64 i = 1; tokens[i]!=NULL; i++){
-      argsLength++;
-    }
-    U8 **args = MAlloc(sizeof(tokens)-sizeof(tokens[0]));
-    for(I64 i = 1; i < argsLength; i++) {
-        args[i-1] = tokens[i];
-    }
-    //TODO: handling system
-}
-
-
-// Main function
-U0 Main() {
-    U8 *input = NULL;
-
-    while (1) {
+    while (TRUE) {
         "Holy> ";
-        gets(&input);
-        if (!input) {
-            "Input error\n";
-            return;
-        }
+        Gets(&input);
+        if (!input || input[0] == '\0') continue;  // Skip empty input
 
-        // Exit condition
-        if (strcmp(input, "exit") == 0) {
-            Free(input);
-            break;
-        }
+        U8 **tokens = Tokenizer(input);
+        if (tokens && tokens[0]) {
+            // Set up args
+            argsLength = 0;
+            while (tokens[argsLength]) argsLength++;  // Count the number of tokens
+            args = tokens + 1;  // HolyC allows array pointer arithmetic
 
-        // Tokenize input
-        U8 **tokens = tokenizer(input);
-        if (!tokens) {
-            "Tokenization failed\n";
-            Free(input);
-            continue;
+            // Execute command
+            for (I64 i = 0; i < NUM_OF_CMDS; i++) {
+                if (StrCmp(commandList[i].cmd, tokens[0]) == 0) {
+                    commandRunnner(args, commandList[i].commandFunction);
+                    goto done;
+                }
+            }
+            "Unknown command: %s\n", tokens[0];
         }
-        
-        // we shall handle the tokens:
-        tokenHandling(tokens);
-
-        free_tokens(tokens);
+done:
         Free(input);
+        if (tokens) {
+            for (I64 i = 0; tokens[i]; i++) Free(tokens[i]);
+            Free(tokens);
+        }
     }
-
-    "Cya!\n";
-    return;
 }
+
+// Entry point
+Shell();
